@@ -1,6 +1,9 @@
 {
-  "name": "timing-wheel-playground",
+  "name": "hierarchical-timing-wheel",
   "version": "1.0.0",
   "main": "index.js",
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "start": "node main.js"
+  }
 }
