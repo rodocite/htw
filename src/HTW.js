@@ -1,3 +1,5 @@
+const DoublyLinkedList = require("./DoublyLinkedList");
+
 class HeirarchicalTimingWheel {
   constructor() {
     this.secondsTick = 0;
@@ -6,21 +8,38 @@ class HeirarchicalTimingWheel {
     this.daysTick = 0;
 
     this.resolutions = {
-      day: new Array(30),
-      hour: new Array(24),
-      minute: new Array(60),
-      second: new Array(60), // base resolution
+      day: Array(30),
+      hour: Array(24),
+      minute: Array(60),
+      second: Array(60), // base resolution
     };
 
+    this._generateBuckets();
     this._initialize();
+  }
+
+  _generateBuckets() {
+    // need to do this because .fill seems to use shared instance for some odd reason
+    for (let resolution in this.resolutions) {
+      for (let i = 0; i < this.resolutions[resolution].length; i++) {
+        if (!this.resolutions[resolution][i]) {
+          this.resolutions[resolution][i] = new DoublyLinkedList();
+        }
+      }
+    }
   }
 
   _initialize() {
     setInterval(() => {
       const { daysTick, hoursTick, minutesTick, secondsTick } = this;
-      console.log({ days: daysTick, hours: hoursTick, minutes: minutesTick, seconds: secondsTick });
+      // console.log({
+      //   days: daysTick,
+      //   hours: hoursTick,
+      //   minutes: minutesTick,
+      //   seconds: secondsTick,
+      // });
       this._tickSeconds();
-    }, 1000);
+    }, 0);
   }
 
   _tickSeconds() {
@@ -33,7 +52,7 @@ class HeirarchicalTimingWheel {
 
   _tickMinutes() {
     this.minutesTick = (this.minutesTick + 1) % this.resolutions.minute.length;
-    this._processMinutesEvents();
+    this._processMinutesEvents(this.minutesTick);
     if (this.minutesTick === 0) {
       this._tickHours();
     }
@@ -41,7 +60,7 @@ class HeirarchicalTimingWheel {
 
   _tickHours() {
     this.hoursTick = (this.hoursTick + 1) % this.resolutions.hour.length;
-    this._processHoursEvents();
+    this._processHoursEvents(this.hoursTick);
     if (this.hoursTick === 0) {
       this._tickDays();
     }
@@ -49,131 +68,138 @@ class HeirarchicalTimingWheel {
 
   _tickDays() {
     this.daysTick = (this.daysTick + 1) % this.resolutions.day.length;
-    this._processDaysEvents();
+    this._processDaysEvents(this.daysTick);
   }
 
   _processSecondEvents(secondsTick) {
     const events = this.resolutions.second[secondsTick];
-    if (events) {
-      while (events.length > 0) {
-        events.pop().event();
+    const purgeList = [];
+    const scheduleList = []
+
+    events.scan((data, index) => {
+      const { time, event } = data;
+
+      if (time.second - secondsTick <= 0) {
+        purgeList.push(index);
+        scheduleList.push(event)
       }
+    });
+
+    for (let index of purgeList) {
+      events.delete(index);
+    }
+
+    for (let schedule of scheduleList) {
+      schedule()
     }
   }
 
-  _processMinutesEvents() {
-    const events = this.resolutions.minute[this.minutesTick];
-    if (events) {
-      const _events = [];
-      while (events.length > 0) {
-        const event = events.pop();
-        if (event.time.minute - this.minutesTick === 0) {
-          this.scheduleEvent({
-            time: {
-              day: 0,
-              hour: 0,
-              minute: 0,
-              second:
-                event.time.second === 0
-                  ? this.secondsTick + 1
-                  : event.time.second,
-            },
-            event: event.event,
-          });
-        } else {
-          _events.push(event);
-        }
-      }
+  _processMinutesEvents(minutesTick) {
+    const events = this.resolutions.minute[minutesTick];
+    const purgeList = [];
+    const scheduleList = [];
 
-      this.resolutions.minute[this.minutesTick] = _events;
+    events.scan((data, index) => {
+      const { time, event } = data;
+
+      if (time.minute - minutesTick <= 0) {
+        purgeList.push(index);
+        scheduleList.push(() => this.scheduleEvent({
+          time: {
+            ...time,
+            minute: 0,
+          },
+          event,
+        }));
+      }
+    });
+
+    for (let index of purgeList) {
+      events.delete(index);
+    }
+
+    for (let schedule of scheduleList) {
+      schedule()
     }
   }
 
-  _processHoursEvents() {
-    const events = this.resolutions.hour[this.hoursTick];
-    if (events) {
-      const _events = [];
-      while (events.length > 0) {
-        const event = events.pop();
-        if (event.time.hour - this.hoursTick === 0) {
-          this.scheduleEvent({
-            time: {
-              day: 0,
-              hour: 0,
-              minute: event.time.minute,
-              second:
-                event.time.second === 0
-                  ? this.secondsTick + 1
-                  : event.time.second,
-            },
-            event: event.event,
-          });
-        } else {
-          _events.push(event);
-        }
-      }
+  _processHoursEvents(hoursTick) {
+    const events = this.resolutions.hour[hoursTick];
+    const purgeList = [];
+    const scheduleList = [];
 
-      this.resolutions.hour[this.hoursTick] = _events;
+    events.scan((data, index) => {
+      const { time, event } = data;
+
+      if (time.hour - hoursTick <= 0) {
+        purgeList.push(index);
+        scheduleList.push(() => this.scheduleEvent({
+          time: {
+            ...time,
+            hour: 0,
+          },
+          event,
+        }));
+      }
+    });
+
+    for (let index of purgeList) {
+      events.delete(index);
+    }
+
+    for (let schedule of scheduleList) {
+      schedule()
     }
   }
 
-  _processDaysEvents() {
-    const events = this.resolutions.day[this.daysTick];
-    if (events) {
-      const _events = [];
-      while (events.length > 0) {
-        const event = events.pop();
-        if (event.time.day - this.daysTick === 0) {
+  _processDaysEvents(daysTick) {
+    const events = this.resolutions.day[daysTick];
+    const purgeList = [];
+    const scheduleList = [];
+
+    events.scan((data, index) => {
+      const { time, event } = data;
+
+      if (time.day - daysTick <= 0) {
+        purgeList.push(index);
+        scheduleList.push(() => {
           this.scheduleEvent({
             time: {
+              ...time,
               day: 0,
-              hour: event.time.hour,
-              minute: event.time.minute,
-              second:
-                event.time.second === 0
-                  ? this.secondsTick + 1
-                  : event.time.second,
             },
-            event: event.event,
+            event,
           });
-        } else {
-          _events.push(event);
-        }
+        })
       }
+    });
 
-      this.resolutions.day[this.daysTick] = _events;
+    for (let index of purgeList) {
+      events.delete(index);
+    }
+
+    for (let schedule of scheduleList) {
+      schedule()
     }
   }
 
   scheduleEvent({ time: { day, hour, minute, second }, event }) {
     if (day) {
-      if (!Array.isArray(this.resolutions.day[day])) {
-        this.resolutions.day[day] = [];
-      }
       this.resolutions.day[day].push({
         time: { day, hour, minute, second },
         event,
       });
     } else if (hour) {
-      if (!Array.isArray(this.resolutions.hour[hour])) {
-        this.resolutions.hour[hour] = [];
-      }
       this.resolutions.hour[hour].push({
         time: { day, hour, minute, second },
         event,
       });
     } else if (minute) {
-      if (!Array.isArray(this.resolutions.minute[minute])) {
-        this.resolutions.minute[minute] = [];
-      }
       this.resolutions.minute[minute].push({
         time: { day, hour, minute, second },
         event,
       });
-    } else if (second) {
-      if (!Array.isArray(this.resolutions.second[second])) {
-        this.resolutions.second[second] = [];
-      }
+    } else {
       this.resolutions.second[second].push({
         time: { day, hour, minute, second },
         event,
